@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  ORGANISER
+  ADMIN
+}
+
+enum SeatCategory {
+  STANDARD
+  PREMIUM
+  VIP
+}
+
+enum SeatStatus {
+  AVAILABLE
+  HELD
+  BOOKED
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+enum WaitlistStatus {
+  WAITING
+  OFFERED
+  ACCEPTED
+  EXPIRED
+}
+
+model User {
+  id        String     @id @default(uuid())
+  email     String     @unique
+  password  String
+  name      String
+  role      Role       @default(CUSTOMER)
+  createdAt DateTime   @default(now())
+  bookings  Booking[]
+  holds     SeatHold[]
+  waitlists Waitlist[]
+  events    Event[]    @relation("OrganiserEvents")
+}
+
+model Venue {
+  id        String   @id @default(uuid())
+  name      String
+  location  String
+  rows      Int      // e.g., 10 rows
+  cols      Int      // e.g., 12 columns per row
+  createdAt DateTime @default(now())
+  events    Event[]
+}
+
+model Event {
+  id          String         @id @default(uuid())
+  title       String
+  description String?
+  venueId     String
+  organiserId String
+  startTime   DateTime
+  createdAt   DateTime       @default(now())
+  venue       Venue          @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  organiser   User           @relation("OrganiserEvents", fields: [organiserId], references: [id], onDelete: Cascade)
+  seats       Seat[]
+  waitlists   Waitlist[]
+  pricing     EventPricing[]
+}
+
+model EventPricing {
+  id       String       @id @default(uuid())
+  eventId  String
+  category SeatCategory
+  price    Float
+  event    Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, category])
+}
+
+model Seat {
+  id         String       @id @default(uuid())
+  eventId    String
+  rowLabel   String       // e.g., "A", "B"
+  seatNumber Int          // e.g., 1, 2
+  category   SeatCategory @default(STANDARD)
+  status     SeatStatus   @default(AVAILABLE)
+  event      Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  holds      SeatHold[]
+  booking    Booking?
+
+  @@unique([eventId, rowLabel, seatNumber])
+  @@index([eventId, status])
+}
+
+model SeatHold {
+  id        String   @id @default(uuid())
+  seatId    String
+  userId    String
+  expiresAt DateTime // TTL timestamp (e.g. now + 10 mins)
+  createdAt DateTime @default(now())
+  seat      Seat     @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([seatId])
+  @@index([expiresAt])
+}
+
+model Booking {
+  id          String        @id @default(uuid())
+  bookingRef  String        @unique @default(cuid())
+  userId      String
+  seatId      String        @unique
+  totalAmount Float
+  status      BookingStatus @default(CONFIRMED)
+  qrCodeUrl   String?
+  createdAt   DateTime      @default(now())
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seat        Seat          @relation(fields: [seatId], references: [id], onDelete: Cascade)
+}
+
+model Waitlist {
+  id          String         @id @default(uuid())
+  eventId     String
+  userId      String
+  category    SeatCategory
+  status      WaitlistStatus @default(WAITING)
+  offeredAt   DateTime?
+  offerExpiry DateTime?      // Time-limited link expiry
+  offerSeatId String?
+  createdAt   DateTime       @default(now())
+  event       Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, category, status, createdAt])
+}
